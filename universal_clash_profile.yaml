@@ -52,23 +52,26 @@ rule-providers:
     type: inline
     behavior: classical
     payload:
-      - DOMAIN-SUFFIX,argotunnel.com
-
+      
   # 自定义直连名单
   custom_white_list:
     type: inline
     behavior: classical
     payload:
+      - DOMAIN-SUFFIX,argotunnel.com
+      - DOMAIN-SUFFIX,cftunnel.com
+      - DOMAIN-SUFFIX,cfargotunnel.com
       - DOMAIN-SUFFIX,xn--ngstr-lra8j.com
       - DOMAIN-SUFFIX,srv.nintendo.net
       - DOMAIN-SUFFIX,d4c.nintendo.net
       - DOMAIN-SUFFIX,cdn.nintendo.net
       - PROCESS-NAME,WinStore.App.exe
       - PROCESS-NAME,SystemSettings.exe
+      - PROCESS-NAME,cloudflared.exe
       - DOMAIN-SUFFIX,ppzhilian.com
       - DOMAIN-SUFFIX,gh-proxy.org
       - DOMAIN-SUFFIX,gh-proxy.com
-
+      
   # 自定义屏蔽名单
   custom_block_list:
     type: inline
@@ -152,44 +155,63 @@ find-process-mode: strict
 
 dns:
   enable: true
+  cache-algorithm: arc
   listen: 0.0.0.0:1053
   ipv6: false
   prefer-h3: false
   use-hosts: true
   use-system-hosts: true
+  respect-rules: false
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist
   fake-ip-filter:
+    - '*.lan'
+    - '*.local'
     - geosite:private
     - geosite:connectivity-check
-  # 说明：这里 DNS 的目标是尽快匹配 GEOIP,CN。
-  # 因此优先使用国内 DNS，以国外 DNS 作为兜底，nameserver 和 fallback 会并发请求。
-  # 走到 GEOIP 之前，外网站点本身已经会被导向代理；用 nameserver-policy 二次分流收益不大。
+    # Tailscale MagicDNS / Cloudflared 隧道域名必须拿真实 IP，不进 fake-ip
+    - +.ts.net
+    - +.argotunnel.com
+    - +.cftunnel.com
+    - +.cfargotunnel.com
+  # 引导 DNS（必须是纯 IP），用于解析下方 nameserver/fallback 中的域名
+  default-nameserver:
+    - 223.5.5.5
   nameserver:
     - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
   fallback:
     - tls://8.8.4.4#PROXY
     - tls://1.1.1.1#PROXY
-  # 如果国内 DNS 返回的结果不是 CN IP，则采用 fallback 结果。
-  fallback-filter:
-    geoip: true
-  # 解析代理服务器域名。
+  # 代理节点域名专用解析，避免鸡蛋问题
   proxy-server-nameserver:
     - https://doh.pub/dns-query
-  # 解析 DNS 服务器域名。
-  default-nameserver:
-    - 223.5.5.5
+  # direct 出口域名专用解析，防止国内查询结果被 fallback 干扰
+  direct-nameserver:
+    - https://doh.pub/dns-query
+  nameserver-policy:
+    # Tailscale MagicDNS，且 DNS 连接强制走 Tailscale 网卡
+    "+.ts.net": "100.100.100.100#Tailscale"
+  fallback-filter:
+    geoip: true
+    geoip-code: CN              # nameserver 返回 CN IP 时不使用 fallback
+    geosite:
+      - gfw
+    ipcidr:
+      - 240.0.0.0/4
 
 tun:
   enable: true
-  stack: gvisor
+  stack: mixed
   auto-route: true
   auto-redirect: true
   auto-detect-interface: true
-  # MTU 过高，会导致 WSL mirrored 模式异常
   mtu: 1500
   gso: true
   gso-max-size: 65536
+  exclude-interface:
+    - Tailscale               # 防 TUN 劫持 Tailscale 自身流量
 
 proxy-groups:
   - name: '1️⃣ 首选'
@@ -246,28 +268,25 @@ proxy-groups:
 
   - name: 'PROXY'
     type: fallback
-    # 主出口：在首选 / 次选之间自动回退。
     proxies:
       - '1️⃣ 首选'
       - '2️⃣ 次选'
     url: https://www.gstatic.com/generate_204
     interval: 30
+    lazy: false
 
   - name: 'DEFAULT'
     type: select
-    # 默认出口：处理所有未命中规则的流量。
     proxies:
       - PROXY
       - DIRECT
 
   - name: 'MANUAL'
     type: select
-    # 手动节点池：直接暴露所有 provider 节点，便于临时手选单节点。
     include-all-providers: true
 
   - name: 'ADS'
     type: select
-    # 广告出口：默认 REJECT，也可手动切到 DIRECT。
     proxies:
       - REJECT
       - DIRECT
@@ -287,6 +306,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇹🇼 台湾节点'
     type: url-test
@@ -313,6 +333,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇺🇸 美国节点'
     type: url-test
@@ -321,6 +342,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇰🇷 韩国节点'
     type: url-test
@@ -329,6 +351,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇬🇧 英国节点'
     type: url-test
@@ -337,6 +360,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇩🇪 德国节点'
     type: url-test
@@ -345,6 +369,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇫🇷 法国节点'
     type: url-test
@@ -353,6 +378,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇳🇱 荷兰节点'
     type: url-test
@@ -361,6 +387,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇨🇦 加拿大节点'
     type: url-test
@@ -369,6 +396,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇦🇺 澳大利亚节点'
     type: url-test
@@ -377,6 +405,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇻🇳 越南节点'
     type: url-test
@@ -385,6 +414,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇹🇭 泰国节点'
     type: url-test
@@ -393,6 +423,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇲🇾 马来西亚节点'
     type: url-test
@@ -401,6 +432,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇮🇳 印度节点'
     type: url-test
@@ -409,6 +441,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇹🇷 土耳其节点'
     type: url-test
@@ -417,6 +450,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '🇷🇺 俄罗斯节点'
     type: url-test
@@ -425,6 +459,7 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
   - name: '其他地区'
     type: url-test
@@ -433,8 +468,22 @@ proxy-groups:
     url: https://www.gstatic.com/generate_204
     interval: 60
     tolerance: 500
+    lazy: false
 
+proxies:
+  # Tailscale 虚拟网卡直连（Windows 网卡名固定叫 Tailscale）
+  - name: Tailscale
+    type: direct
+    interface-name: Tailscale
+    
 rules:
+  - DOMAIN-SUFFIX,ts.net,Tailscale
+  - DOMAIN-SUFFIX,tailscale.com,Tailscale
+  - IP-CIDR,100.64.0.0/10,Tailscale,no-resolve
+  - IP-CIDR6,fd7a:115c:a1e0::/48,Tailscale,no-resolve
+  - PROCESS-NAME,tailscale.exe,Tailscale
+  - PROCESS-NAME,tailscaled.exe,Tailscale
+  
   - RULE-SET,custom_block_list,REJECT
   - RULE-SET,custom_black_list,PROXY
   - RULE-SET,custom_white_list,DIRECT
