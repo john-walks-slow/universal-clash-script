@@ -471,14 +471,14 @@ proxy-groups:
     lazy: false
 
 proxies:
-  # Tailscale 虚拟网卡直连（Windows 网卡名固定叫 Tailscale）
   - name: Tailscale
-    type: direct
-    interface-name: Tailscale
+    type: socks5
+    server: 127.0.0.1
+    port: 1055
+    udp: true
     
 rules:
   - DOMAIN-SUFFIX,ts.net,Tailscale
-  - DOMAIN-SUFFIX,tailscale.com,Tailscale
   - IP-CIDR,100.64.0.0/10,Tailscale,no-resolve
   - IP-CIDR6,fd7a:115c:a1e0::/48,Tailscale,no-resolve
   - PROCESS-NAME,tailscale.exe,Tailscale
