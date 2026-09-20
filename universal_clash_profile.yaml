@@ -202,7 +202,7 @@ dns:
       - 240.0.0.0/4
 
 tun:
-  enable: true
+  enable: false # 按需打开
   stack: mixed
   auto-route: true
   auto-redirect: true
