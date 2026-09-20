@@ -22,6 +22,12 @@
 
 在已有配置的 `重载-脚本` 中启用脚本：[universal_clash_script](https://github.com/john-walks-slow/universal-clash-script/raw/refs/heads/main/universal_clash_script.js)
 
+## FAQ
+
+#### 直接使用机场配置可以连通，使用本配置无法连通？
+
+机场可能配置了特殊的 hosts 规则。请检查机场配置中是否有 hosts: 部分，粘贴到我们的配置中即可。
+
 ## 许可证
 
 MIT
